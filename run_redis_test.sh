@@ -1,10 +1,10 @@
 #! /bin/bash
 
-AIM_SCRIPT=/home/test_activeidle.sh
+AIM_SCRIPT=/home/redis-reinforcement-learning/test_activeidle.sh
 
-redis_benchamrk_script=/home/redis-ning/run_redis_benchmark.sh
+redis_benchamrk_script=/home/redis-reinforcement-learning/run_redis_benchmark.sh
 
-LOGFILE="/home/redis-ning/result/result.txt"
+LOGFILE="/home/redis-reinforcement-learning/result/result.txt"
 
 
 function set_aim(){
@@ -78,23 +78,26 @@ function run_test(){
 
 UP_SET=(04 08)
 UF_SET=(0a 0c 0e 10 12 14 16)
+times=2
 
-echo "######TEST START########" >> $LOGFILE
 ## Test OPM
-run_test 06 0E 3.8GHZ 16 OPM
-sleep 10
+for i in 1..$times
+do
+    run_test 06 0E 3.8GHZ 16 OPM
+    sleep 10
+done
 ## Test IEM
 
 
 
-# for UP in ${UP_SET[@]};do
-#     for UF in ${UF_SET[@]};do   
-#         run_test $UP $UF 3.8GHZ 16 IEM-$UP-$UF
-#         sleep 10
-#     done
-# done
-
-
-echo "######TEST END########" >> $LOGFILE
+for UP in ${UP_SET[@]};do
+    for UF in ${UF_SET[@]};do 
+        for i in 1..$times
+        do 
+            run_test $UP $UF 3.8GHZ 16 IEM-$UP-$UF
+            sleep 10
+        done
+    done
+done
 
 
