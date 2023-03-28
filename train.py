@@ -1,4 +1,4 @@
-from dqn import *
+from qlearning import *
 from env import *
 import os
 
@@ -20,7 +20,6 @@ for i_episode in range(1000):
     while True:
 
         a = alg.choose_action(s)
-
         # take action
         s_, r, done, info = env.step(a)
         print([round(i, 2) for i in s_], round(r, 2), Action[a])
@@ -30,11 +29,10 @@ for i_episode in range(1000):
             break
 
         alg.store_transition(s, a, r, s_)
-
         ep_r += r
         ep_e += env.energy
-        if alg.memory_counter > MEMORY_CAPACITY:
-            alg.learn()
+        # if alg.memory_counter > MEMORY_CAPACITY:
+        #     alg.learn()
 
         s = s_
 

@@ -1,13 +1,18 @@
 #! /bin/bash
 
 
-port=7000
-cpuset="40-79,120-159"
+port=6000
+# cpuset1=48
+# cpuset2=50
+cpuset=0-191
 
 
-for ((i=0; i<48; i++));do
+
+for ((i=0; i<192; i++));do
+
     echo "start redis-server prot $port cpuset $cpuset"
-    taskset -ac $cpuset redis-server /etc/redis.conf --maxmemory 5G --daemonize yes --port $port --protected-mode no --save ""
+    taskset -ac $cpuset redis-server /etc/redis.conf --daemonize yes --port $port --maxmemory 2000m --maxmemory-policy allkeys-lru --protected-mode no --save ""
+
     port=`expr $port + 1`
 done
 

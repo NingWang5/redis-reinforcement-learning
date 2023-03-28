@@ -6,6 +6,33 @@
 #     cat /proc/cpuinfo | grep processor | tail -n +49 | head -n 48 > observation/cpu_frequency
 # done
 
+function performance(){
+
+    rm -rf observation/performance
+    while true
+    do
+        throughputs=0
+        num=0
+        for port in {6000..6191}
+        do
+            throughput=`timeout 0.01 redis-cli -h 10.10.20.2 -p $port info stats | grep instantaneous_ops_per_sec | awk -F ':' '{print int($2)}'` # > observation/redis_throughput
+            if [[ ! -z $throughput ]];
+            then
+                # throughputs+=($throughput)
+                throughputs=$(expr $throughputs + $throughput)
+                num=`expr $num + 1`
+            fi
+        done
+        # echo $throughputs $num
+        if [[ $throughputs > 0 && $num > 10 ]]
+        then
+            avg=`expr $throughputs / $num`
+            echo $avg >> observation/performance
+        fi
+    done
+
+}
+
 # memory throughput
 pcm-mem 0.1 -csv=observation/memory_throughput.csv &
 

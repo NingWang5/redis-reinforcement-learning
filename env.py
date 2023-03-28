@@ -3,20 +3,22 @@ import os
 import io
 import time
 import numpy as np
+import multiprocessing
+import math
 
 
 Action = [['01', '13'],
-          ['02', '12'],
+        #   ['02', '12'],
           ['03', '11'],
-          ['04', '10'],
+        #   ['04', '10'],
           ['05', '0f'],
-          ['06', '0e'],
+        #   ['06', '0e'],
           ['07', '0d'],
-          ['08', '0c'],
-          ['09', '0b'],
-          ['10', '0a']]
+        #   ['08', '0c'],
+          ['09', '0b']]
+        #   ['10', '0a']]
 
-MAX_ENERGY, MAX_PERF, MAX_THROUGHPUT, MAX_BANDWIDTH = 310, 80, 130000, 100000
+MAX_ENERGY, MAX_PERF, MAX_THROUGHPUT, MAX_BANDWIDTH = 400, 31000, 190000, 260000
 
 class ENV():
     def __init__(self):
@@ -24,6 +26,9 @@ class ENV():
         self.rate = 4
         self.done = False
         self.energy = 0
+        self.perf = 0
+        self.queue = multiprocessing.Queue()
+        self.p = multiprocessing.Process(target=self.redis_client_througput, args=[self.queue])
 
     def shutdown(self):
         os.system("ps -ef | grep 'redis' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
@@ -31,17 +36,20 @@ class ENV():
         os.system("ps -ef | grep 'pcm' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
 
     def reset(self):
-        time.sleep(2)
-
-        while True:
-            subprocess.Popen('./run_redis_test.sh', shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(5)
-            p = os.popen('ps aux | grep redis')
-            content = p.read()
-            if len(content.split("\n")) > 10:
-                break
-            os.system("ps -ef | grep 'redis' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
-            time.sleep(1)
+        time.sleep(5)
+        subprocess.Popen('./run_redis_test.sh', shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(15)
+        if not self.p.is_alive():
+            self.p.start()
+        # while True:
+        #     subprocess.Popen('./run_redis_test.sh', shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        #     time.sleep(5)
+        #     p = os.popen('ps aux | grep redis')
+        #     content = p.read()
+        #     if len(content.split("\n")) > 10:
+        #         break
+        #     os.system("ps -ef | grep 'redis' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
+        #     time.sleep(1)
 
         self.done = False
         state = self.observe()
@@ -49,12 +57,9 @@ class ENV():
 
     def step(self, act):
         p = os.system('/home/test_activeidle.sh {} {} > /dev/null'.format(Action[act][0], Action[act][1]))
-
         time.sleep(self.rate)
-
         state = self.observe()
         reward = self.reward()
-
         return state, reward, self.done, None
 
     def reward(self):
@@ -62,18 +67,24 @@ class ENV():
         performance = self.read_redis_throughput() / MAX_PERF
         self.energy = energy
         print(round(energy * MAX_ENERGY, 2), round(performance * MAX_PERF, 2))
-
         reward = performance / energy
         return reward
 
     def observe(self):
+
+        p = os.popen("ssh 10.67.124.182 -T 'ps aux | grep redis-benchmark | wc -l'")
+        content = p.read()
+        if content and int(content) <= 10:
+            self.done = True
+            return []
+
         cpu_usage = self.read_cpu_usage()
         cpu_frequency = self.read_cpu_frequency()  / 3800
         memory_throughput = self.read_memory_throughput() / MAX_THROUGHPUT
         memory_usage = self.read_memory_usage() / 100
         network_io = self.read_network_io() / MAX_BANDWIDTH
 
-        state = [cpu_usage, cpu_frequency, memory_throughput, memory_usage, network_io]
+        state = [cpu_usage, cpu_frequency, memory_usage, memory_throughput, network_io]
         return state
 
     def read_cpu_usage(self, num=48):
@@ -117,7 +128,10 @@ class ENV():
         for idx, con in enumerate(content):
             if idx == len(content) - 1 or con == "": continue
             con = con.split(",")
-            throughputs.append(float(con[-1]))
+            try:
+                throughputs.append(float(con[-1]))
+            except:
+                print(con)
         avg_throughput = np.mean(throughputs)
         return avg_throughput
 
@@ -159,19 +173,53 @@ class ENV():
         avg_energy = float(content) / num
         return avg_energy
 
-    def read_redis_throughput(self, ports=[6000+i for i in range(16)]):
-        perfs = []
-        for port in ports:
-            p = os.popen('redis-cli -h 10.10.20.2 -p {} info stats | grep instantaneous_ops_per_sec'.format(port))
-            content = p.read()
-            try:
-                content = float(content[content.find(":")+1:])
-                perfs.append(content)
-            except:
-                self.done = True
-                return 0
-        avg_perf = np.mean(perfs)
-        return avg_perf
+    def redis_client_througput(self, queue, ports=[6000+i for i in range(192)]):
+        while True:
+            throughputs = []
+            for port in ports:
+                p = os.popen("timeout 0.01 redis-cli -h 10.10.20.2 -p {} info stats | grep instantaneous_ops_per_sec".format(port))
+                s = p.read()
+                try:
+                    content = s.split(":")[1]
+                    content = int(content)
+                    if math.isnan(content):
+                        print(s)
+                    if content and not math.isnan(content): throughputs.append(content)
+                except:
+                    pass
+            if len(throughputs): 
+                perf = np.mean(throughputs)
+            else:
+                perf = 0
+            queue.put(perf)
+
+    def read_redis_throughput(self, num=5, ports=[6000+i for i in range(192)]):
+        self.perf = self.queue.get()
+        if math.isnan(self.perf):
+            print(self.perf)
+        return self.perf
+
+        # num = int(self.rate/2)
+        # p = os.popen('cat ./observation/performance | tail -n {}'.format(num))
+        # content = p.read()
+        # content = [int(i) for i in content.split('\n') if i != ""]
+        # avg_perf = np.mean(content)
+
+        # perfs = []
+        # for port in ports:
+        #     print(port)
+        #     p = os.popen('redis-cli -h 10.10.20.2 -p {} info stats | grep instantaneous_ops_per_sec'.format(port))
+        #     content = p.read()
+        #     print(content)
+        #     try:
+        #         content = float(content[content.find(":")+1:])
+        #         perfs.append(content)
+        #     except:
+        #         self.done = True
+        #         return 0
+        # avg_perf = np.mean(perfs)
+
+        # return avg_perf
 
 
 if __name__ == '__main__':   
@@ -203,5 +251,5 @@ if __name__ == '__main__':
 
         print(MAX_ENERGY, MAX_PERF, MAX_THROUGHPUT, MAX_IO)
 
-        time.sleep(2)
+        time.sleep(3)
     # proc = subprocess.run(['bash', '/home/redis-ning/observe.sh'], stdout=None, shell=True)
